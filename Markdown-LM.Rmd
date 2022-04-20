@@ -1,0 +1,218 @@
+---
+title: "Biostatistics : Linear models"
+author: "Imler Théo"
+date: "20 april 2022"
+output:
+  pdf_document: default
+  word_document: default
+  html_document: default
+---
+
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = FALSE)
+library(readr)
+library(knitr)
+trees <- read.csv("data/Data.csv", sep=";")
+
+```
+```{r data_pretreatments}
+# ELements are now nominal factors
+library(plyr)
+trees
+trees$Species     <- as.factor(trees$Species)
+trees$Species     <- revalue(trees$Species, c("1"="Loblolly Pine", "2"="Shortleaf Pine", "3"="Yellow Poplar", "4"="Red Gum"))
+trees$Branch      <- as.factor(trees$Branch)
+trees$Branch      <- revalue(trees$Branch, c("1"="Branch 1", "2"="Branch 2", "3"="Branch 3", "4"="Branch 4", "5"="Branch 5"))
+trees$Transpiration <- as.factor(trees$Transpiration)
+trees$Transpiration <- revalue(trees$Transpiration, c("1"="Rapid", "2"="Slow"))
+# Location is an ordinal faction
+trees$Location    <- as.factor(trees$Location)
+trees$Location    <- revalue(trees$Location, c("1"="Central", "2"="Distal", "3"="Proximal"))
+trees$Location    <- ordered(trees$Location, levels = c("Proximal", "Central", "Distal"))
+```
+
+# Introduction
+
+In this report, we reproduced the work from an article written by J.Joseph McDermott and published in the American Journal of botany in 1941: "The effect of the method of cutting on the moisture content of samples from branches." An important fact about wood is his hygroscopic nature, meaning that wood, almost like a spong, will gain or lose moisture from the air based upon the conditions of the surrounding environment. One frequent botanic analysis is the measure of this moisture. In this article, the author study how the cutting method could interfer on this moisture content.
+
+He studied the moisture content of 119 different samples in function of several parameters :
+
+  - The species of the tree : *Loblolly Pine*, *Shortleaf Pine*, *Yellow Poplar* or *Red Gum*
+  
+  - The segment of the branch cut : Between 1 and 5 (fragment of 3 inches)
+  
+  - The location of the sample : Central, Proximal or Distal
+  
+  - The transpiration rate : Slow or Rapid (depending on weather conditions)
+
+The moisture quantity was expressed as ten times the percentage of the dry weight of the sample.
+
+
+# I. Data exploration
+
+Our data are presented as a dataframe of 119 samples (rows) and 5 colums (presented above) : 
+
+
+
+## Plot design and some interactions plot:
+
+```{r hist, fig.cap="Histogram and boxplot of moisture distribution"} 
+par(mfrow=c(1,2))
+hist(trees$Moisture,breaks = 30, col = "lightgray", border = "blue",freq = FALSE, main = "Moisture frequency",xlab = "Moisture")
+lines(density(trees$Moisture, adjust=2), lty="dotted", col="black", lwd=2)
+boxplot(trees$Moisture,col = "lightgray",border ="blue", pch = 19,outcex=0.7, main ="Box-and-Whisker plot")
+```
+
+```{r plot_design, fig.cap="Plot design"}
+plot.design(trees)
+```
+
+```{r QQPlot, fig.cap="QQ Plot of Moisture distribution"}
+#QQ plot
+library("carData")
+library("car")
+invisible(qqPlot(trees$Moisture, xlab="Norm. quantiles", ylab="Moisture"))
+```
+
+```{r interaction_plot, fig.cap="Interactions plots"}
+#Interactions plots
+interaction1 <- ggplot(trees, aes(x = Species, y = Moisture, color = Transpiration)) + geom_point() +
+  stat_summary(fun.y = mean, geom = "line", aes(group = Transpiration), size = 1) + theme_bw()
+
+interaction2 <- ggplot(trees, aes(x = Species, y = Moisture, color = Branch)) + geom_point() +
+  stat_summary(fun.y = mean, geom = "line", aes(group = Branch), size = 1) + theme_bw()
+
+interaction3 <- ggplot(trees, aes(x = Location, y = Moisture, color = Transpiration)) + geom_point() +
+  stat_summary(fun.y = mean, geom = "line", aes(group = Transpiration), size = 1) + theme_bw()
+
+interaction4 <- ggplot(trees, aes(x = Species, y = Moisture, color = Location)) + geom_point() +
+  stat_summary(fun.y = mean, geom = "line", aes(group = Location), size = 1) + theme_bw()
+
+grid.arrange(interaction1, interaction2, interaction3, interaction4, nrow = 2)
+rm(interaction1, interaction2, interaction3, interaction4)
+```
+
+# Models
+
+
+First of all, to test an ANOVA analysis, we have to test some assumption: measures in each population are normally distributed, variances in each population are equal (homoscedasticity) and samples are obtained independently at random from the populations.
+The samples have to be the same size n (balanced design).
+```{r test_summary}
+#Size of sample
+summary(trees)
+
+# no tests for var dependancies as tests are made "equilibrated (almost same size of all parameters, see summary)"
+#measures in each populations are normally distributed (symetric boxplots)
+# Possobility to test each population with a QQ plot 
+# library("car")
+# layout(1)
+# sub1 <- subset(trees, Transpiration=="Slow")
+# qqPlot(sub1$Moisture)
+# rm(sub1)
+```
+
+```{r box, fig.cap="Boxplots of the distributions according to features"}
+par(mai = c(0.4, 0.65, 0.2, 0.4))
+layout(matrix(1:4, nrow = 2))
+boxplot(Moisture ~ Species, data=trees, ylab="Moisture",pch = 19,col ="lightgray",xlab="Species",boxwex = 0.8,medlwd = 0.5,border="blue",outcex=0.7)
+boxplot(Moisture ~ Branch, data=trees, ylab="Moisture",pch = 19,col ="lightgray",xlab ="Branch",boxwex = 0.8,medlwd = 0.5,border="blue",outcex=0.7)
+boxplot(Moisture ~ Location, data=trees, ylab="Moisture",pch = 19,col ="lightgray",xlab="Location",boxwex = 0.8,medlwd = 0.5,border="blue",outcex=0.7)
+boxplot(Moisture ~ Transpiration, data=trees, ylab="Moisture",pch = 19,col ="lightgray",xlab="Transpiration",boxwex = 0.8,medlwd = 0.5,border="blue",outcex=0.7)
+
+leveneTest(trees$Moisture, trees$Branch)
+leveneTest(trees$Moisture, trees$Species)
+leveneTest(trees$Moisture, trees$Location)
+leveneTest(trees$Moisture, trees$Transpiration)
+```
+
+Here, we can have several models to for our data:
+
+```{r anova_models, echo=TRUE}
+aov.trees.S   <- aov(Moisture ~ Species, data = trees)
+aov.trees.B   <- aov(Moisture ~ Branch, data = trees)
+aov.trees.L   <- aov(Moisture ~ Location, data = trees)
+aov.trees.T   <- aov(Moisture ~ Transpiration, data = trees)
+aov.trees.SL  <- aov(Moisture ~ Species + Location, data = trees)
+aov.trees.ST  <- aov(Moisture ~ Species + Transpiration, data = trees)
+aov.trees.STLBs        <- aov(Moisture ~ Species + Transpiration + Location + Species:Branch, data = trees)
+aov.trees.SBLT         <- aov(Moisture ~ Species+Branch+Location+Transpiration, data=trees)
+aov.trees.SLT <- aov(Moisture ~ Species+Location+Transpiration, data=trees)
+
+aov.trees.opt   <- aov(Moisture ~ Transpiration + Species + Transpiration:Species + Species:Branch + Branch + Location + Location:Transpiration + Location:Species + Location:Species:Transpiration, data = trees)
+
+model.S <- summary(lm(Moisture ~ Species, data = trees))
+model.B   <- summary(lm(Moisture ~ Branch, data = trees))
+model.L   <- summary(lm(Moisture ~ Location, data = trees))
+model.T   <- summary(lm(Moisture ~ Transpiration, data = trees))
+model.SL  <- summary(lm(Moisture ~ Species + Location, data = trees))
+model.ST  <- summary(lm(Moisture ~ Species + Transpiration, data = trees))
+model.STLBS        <- summary(lm(Moisture ~ Species + Transpiration + Location + Species:Branch, data = trees))
+model.SBLT         <- summary(lm(Moisture ~ Species+Branch+Location+Transpiration, data=trees))
+model.SLT <- summary(lm(Moisture ~ Species+Location+Transpiration, data=trees))
+
+model.opt   <- summary(lm(Moisture ~ Transpiration + Species + Transpiration:Species + Species:Branch + Branch + Location + Location:Transpiration + Location:Species + Location:Species:Transpiration, data = trees))
+
+\begin{center}\begin{tabular}{ c c }[1] "\\begin{table}[ht]\n\\centering\n\\begingroup\\footnotesize\n\\begin{tabular}{llrr}\n \\textbf{Variable} & \\textbf{Levels} & $\\mathbf{n}$ & $\\mathbf{\\%}$ \\\\ \n  \\hline\nClinic & Clinic 1 & 163 & 68.5 \\\\ \n   & Clinic 2 & 75 & 31.5 \\\\ \n   \\hline\n & all & 238 & 100.0 \\\\ \n   \\hline\n\\hline\nStatus & left & 88 & 37.0 \\\\ \n   & censored & 150 & 63.0 \\\\ \n   \\hline\n & all & 238 & 100.0 \\\\ \n   \\hline\n\\hline\nDosage & Low & 72 & 30.2 \\\\ \n   & Medium & 119 & 50.0 \\\\ \n   & High & 47 & 19.8 \\\\ \n   \\hline\n & all & 238 & 100.0 \\\\ \n   \\hline\n\\hline\n\\end{tabular}\n\\endgroup\n\\caption{Patient characteristics: categorical variables.} \n\\label{tab: nominal1}\n\\end{table}\n"
+&NULL
+\end{tabular}\end{center}
+
+S <- model.S$r.squared
+B <- model.B$r.squared
+L <- model.L$r.squared
+TX <- model.T$adj.r.squared
+SL <- model.SL$adj.r.squared
+ST <- model.ST$adj.r.squared
+STLBS <- model.STLBS$adj.r.squared
+SBLT <- model.SBLT$adj.r.squared
+SLT <- model.SLT$adj.r.squared
+OPT <- model.opt$adj.r.squared
+
+
+
+comparaison <- data.frame("Model"= c("model.S","model.B","model.L","model.T","model.SL","model.ST","model.STLBS","model.SBLT","model.SLT","model.opt"),"Adjusted R-squared" = c(S, B, L, TX,SL, ST,STLBS, SBLT,SLT, OPT))
+plot(x=comparaison$Model, y=comparaison$Adjusted.R.squared,data=comparaison,type = "h")
+comparaison$Adjusted.R.squared <- sort(x = comparaison$Adjusted.R.squared,decreasing = FALSE)
+
+col <- colorRampPalette(colors = c("lightblue", "blue"))(10)
+
+barplot(height = comparaison$Adjusted.R.squared,names.arg = comparaison$Model, ylab = "Adjusted R-squared",las = 2,col = col)
+```
+
+We have tested some comparison of models:
+```{r model_comparison, echo = FALSE}
+anova(aov.trees.STLBs, aov.trees.SBLT)
+anova(aov.trees.SLT,aov.trees.SBLT, aov.trees.STLBs)
+anova(aov.trees.STLBs, aov.trees.opt)
+#anova(aov.trees.int, aov.article, test="F")
+```
+
+The last model will be keeped (`Moisture ~ Transpiration + Species + Transpiration:Species + Species:Branch + Branch + Location + Location:Transpiration + Location:Species + Location:Species:Transpiration`)
+
+## Model plots
+```{r test, fig.cap="Model quality assesments"}
+layout(matrix(1:4, nrow = 2))
+plot(aov.trees.opt, which = 1:4) 
+# plot(aov.trees.opt)
+```
+
+```{r diagnostic_plots, fig.cap="Model quality assessments"}
+# layout((matrix(1:4, nrow = 2)))
+# plot(aov.article)
+
+
+library(ggfortify)
+# autoplot(aov.trees.opt)
+autoplot(aov.trees.opt, which = 1:4, ncol = 2, label.size = 3)
+# autoplot(aov.article, which=1:4, data = trees,
+#          colour = 'Location', label.size = 3)
+```
+
+As we can see, the value number `r which.max(aov.trees.opt$residuals)` could be an outlier but its Cook's distance is arround 0.8 so we can keep it.
+
+## Models analysis
+
+
+
+# Conclusion
